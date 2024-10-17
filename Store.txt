@@ -1,0 +1,158 @@
+const map_symbol_types = new Map<string, number>();
+const map_symbol_modifiers = new Map<string, number>();
+
+const mapper_symbol = (function () {
+    const array_symbol_types = [
+        'comment',
+        'string',
+        'keyword',
+        'number',
+        'regexp',
+        'operator',
+        'namespace',
+        'type',
+        'struct',
+        'class',
+        'interface',
+        'enum',
+        'typeParameter',
+        'function',
+        'method',
+        'decorator',
+        'macro',
+        'variable',
+        'parameter',
+        'property',
+        'label',
+    ];
+    array_symbol_types.forEach((symbol, index_symbol) =>
+        map_symbol_types.set(symbol, index_symbol),
+    );
+
+    const array_symbol_modifiers = [
+        'declaration',
+        'documentation',
+        'readonly',
+        'static',
+        'abstract',
+        'deprecated',
+        'modification',
+        'async',
+    ];
+    array_symbol_modifiers.forEach((symbol, index_symbol) =>
+        map_symbol_modifiers.set(symbol, index_symbol),
+    );
+
+    return new vscode.SemanticTokensLegend(
+        array_symbol_types,
+        array_symbol_modifiers,
+    );
+})();
+
+interface struct_symbol {
+    line: number;
+    startCharacter: number;
+    length: number;
+    tokenType: string;
+    map_symbol_modifiers: string[];
+}
+
+const disp_symbols = vscode.languages.registerDocumentSemanticTokensProvider(
+    { language: 'semanticLanguage' },
+    new DocumentSemanticTokensProvider(),
+    mapper_symbol,
+);
+
+
+
+const array_symbols_apply: vscode.DecorationOptions[] = [];
+
+vscode.window.showInformationMessage(
+    `Something big...${mapper_symbol.tokenModifiers}`,
+);
+
+
+class DocumentSemanticTokensProvider implements DocumentSemanticTokensProvider {
+    async provideDocumentSemanticTokens(
+        document: vscode.TextDocument,
+        token: vscode.CancellationToken,
+    ): Promise<vscode.SemanticTokens> {
+        const allTokens = this._parseText(document.getText());
+        const builder = new vscode.SemanticTokensBuilder();
+        allTokens.forEach((token) => {
+            builder.push(
+                token.line,
+                token.startCharacter,
+                token.length,
+                this._encodeTokenType(token.tokenType),
+                this._encodeTokenModifiers(token.map_symbol_modifiers),
+            );
+        });
+        return builder.build();
+    }
+
+    private _encodeTokenType(tokenType: string): number {
+        if (map_symbol_types.has(tokenType)) {
+            return map_symbol_types.get(tokenType)!;
+        } else if (tokenType === 'notInLegend') {
+            return map_symbol_types.size + 2;
+        }
+        return 0;
+    }
+
+    private _encodeTokenModifiers(strTokenModifiers: string[]): number {
+        let result = 0;
+        for (let i = 0; i < strTokenModifiers.length; i++) {
+            const tokenModifier = strTokenModifiers[i];
+            if (map_symbol_modifiers.has(tokenModifier)) {
+                result =
+                    result | (1 << map_symbol_modifiers.get(tokenModifier)!);
+            } else if (tokenModifier === 'notInLegend') {
+                result = result | (1 << (map_symbol_modifiers.size + 2));
+            }
+        }
+        return result;
+    }
+
+    private _parseText(text: string): struct_symbol[] {
+        const r: struct_symbol[] = [];
+        const lines = text.split(/\r\n|\r|\n/);
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            let currentOffset = 0;
+            do {
+                const openOffset = line.indexOf('[', currentOffset);
+                if (openOffset === -1) {
+                    break;
+                }
+                const closeOffset = line.indexOf(']', openOffset);
+                if (closeOffset === -1) {
+                    break;
+                }
+                const tokenData = this._parseTextToken(
+                    line.substring(openOffset + 1, closeOffset),
+                );
+                r.push({
+                    line: i,
+                    startCharacter: openOffset + 1,
+                    length: closeOffset - openOffset - 1,
+                    tokenType: tokenData.tokenType,
+                    map_symbol_modifiers: tokenData.map_symbol_modifiers,
+                });
+                currentOffset = closeOffset;
+            } while (true);
+        }
+        return r;
+    }
+
+    private _parseTextToken(text: string): {
+        tokenType: string;
+        map_symbol_modifiers: string[];
+    } {
+        const parts = text.split('.');
+        return {
+            tokenType: parts[0],
+            map_symbol_modifiers: parts.slice(1),
+        };
+    }
+}
